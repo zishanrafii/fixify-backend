@@ -1,0 +1,327 @@
+openapi: 3.0.3
+info:
+  title: Fixify — Authentication API
+  version: 1.0.0
+  description: >
+    Authentication module for the Fixify service marketplace backend.
+    Covers phone OTP auth, email auth, server-verified social login
+    (Google/Apple/Facebook), guest mode, refresh token rotation, logout,
+    and the current-user endpoint. This module is FROZEN — see
+    /docs/deployment-checklist.md — changes require a critical bug or
+    security justification.
+servers:
+  - url: http://localhost:5000/api/auth
+    description: Local development
+  - url: https://api.fixify.example.com/api/auth
+    description: Production (replace with actual domain)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ApiSuccess:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        message: { type: string }
+        data: { type: object }
+
+    ApiError:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        message: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        phone: { type: string, nullable: true, example: "01712345678" }
+        email: { type: string, nullable: true, format: email }
+        name: { type: string }
+        role: { type: string, enum: [CUSTOMER, PROVIDER, ADMIN] }
+        isVerified: { type: boolean }
+        isGuest: { type: boolean }
+        isSuspended: { type: boolean }
+        authProvider: { type: string, enum: [PHONE, EMAIL, GOOGLE, APPLE, FACEBOOK, GUEST] }
+        avatarUrl: { type: string, nullable: true }
+        referralCode: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    AuthTokens:
+      type: object
+      properties:
+        accessToken: { type: string, description: "JWT, 15 minute expiry" }
+        refreshToken: { type: string, description: "Opaque random token, 30 day expiry, single-use (rotates)" }
+
+    AuthResponseData:
+      allOf:
+        - $ref: '#/components/schemas/AuthTokens'
+        - type: object
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+
+  responses:
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          example: { success: false, message: "phone: Enter a valid Bangladeshi phone number" }
+    Unauthorized:
+      description: Invalid credentials or token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Suspended:
+      description: Account is suspended
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+
+paths:
+  /send-otp:
+    post:
+      summary: Send a phone OTP (SMS)
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: "01712345678" }
+      responses:
+        '200':
+          description: OTP sent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiSuccess' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /signup:
+    post:
+      summary: Complete phone signup (OTP + password)
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp, name, password]
+              properties:
+                phone: { type: string }
+                otp: { type: string, minLength: 6, maxLength: 6 }
+                name: { type: string }
+                password: { type: string, minLength: 8 }
+                role: { type: string, enum: [CUSTOMER, PROVIDER] }
+                referralCode: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AuthResponseData' } }
+        '400': { description: "Invalid/expired OTP or phone already registered" }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /login:
+    post:
+      summary: Login with phone + password
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AuthResponseData' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Suspended' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /email-login:
+    post:
+      summary: Login with email + password
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AuthResponseData' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Suspended' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /social-login:
+    post:
+      summary: Login/signup via Google, Apple, or Facebook (server-verified)
+      tags: [Auth]
+      description: >
+        The client sends only the raw provider token — never a self-reported
+        profile. The server verifies it against the provider (Google/Apple
+        public keys, or Facebook Graph API) and derives the profile
+        exclusively from the verified payload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, token]
+              properties:
+                provider: { type: string, enum: [GOOGLE, APPLE, FACEBOOK] }
+                token:
+                  type: string
+                  description: "Google idToken / Apple identityToken / Facebook accessToken"
+                fullName:
+                  type: string
+                  description: "Apple only — unverified, used only to seed a brand-new account on first sign-in"
+      responses:
+        '200':
+          description: Logged in (existing or newly linked/created account)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AuthResponseData' } }
+        '401': { description: "Invalid, expired, or unverifiable provider token" }
+        '403': { $ref: '#/components/responses/Suspended' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { description: "Provider not configured (missing env credentials) or internal linking error" }
+
+  /guest-login:
+    post:
+      summary: Start a guest (unauthenticated-feeling) session
+      tags: [Auth]
+      responses:
+        '200':
+          description: Guest session started
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AuthResponseData' } }
+
+  /refresh-token:
+    post:
+      summary: Exchange a refresh token for a new access + refresh token pair
+      tags: [Auth]
+      description: >
+        Refresh tokens are single-use and rotate on every call. Reusing an
+        already-used (revoked) token revokes every other active session for
+        that user as a theft-detection measure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New token pair issued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AuthTokens' } }
+        '400': { description: "refreshToken missing from body" }
+        '401': { description: "Invalid, expired, or already-used refresh token" }
+        '403': { $ref: '#/components/responses/Suspended' }
+
+  /logout:
+    post:
+      summary: Revoke a refresh token
+      tags: [Auth]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: Logged out (idempotent — always 200, even with no/invalid token)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiSuccess' }
+
+  /me:
+    get:
+      summary: Get the current authenticated user (fresh from DB)
+      tags: [Auth]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties: { user: { $ref: '#/components/schemas/User' } }
+        '401': { description: "Missing/invalid/expired access token" }
+        '404': { description: "User no longer exists" }

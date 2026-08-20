@@ -1,0 +1,124 @@
+{
+  "info": {
+    "name": "Fixify — Authentication",
+    "description": "Auth module endpoints. Import alongside the 'Fixify Local' environment (baseUrl=http://localhost:5000/api/auth).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/auth" },
+    { "key": "phone", "value": "01712345678" },
+    { "key": "otp", "value": "" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Send OTP",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"phone\": \"{{phone}}\"\n}" },
+        "url": "{{baseUrl}}/send-otp"
+      }
+    },
+    {
+      "name": "Signup",
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "const data = pm.response.json().data;",
+          "if (data) { pm.collectionVariables.set('accessToken', data.accessToken); pm.collectionVariables.set('refreshToken', data.refreshToken); }"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"otp\": \"{{otp}}\",\n  \"name\": \"Test User\",\n  \"password\": \"Password123\",\n  \"role\": \"CUSTOMER\"\n}" },
+        "url": "{{baseUrl}}/signup"
+      }
+    },
+    {
+      "name": "Login (phone)",
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "const data = pm.response.json().data;",
+          "if (data) { pm.collectionVariables.set('accessToken', data.accessToken); pm.collectionVariables.set('refreshToken', data.refreshToken); }"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"password\": \"Password123\"\n}" },
+        "url": "{{baseUrl}}/login"
+      }
+    },
+    {
+      "name": "Login (email)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Password123\"\n}" },
+        "url": "{{baseUrl}}/email-login"
+      }
+    },
+    {
+      "name": "Social Login (Google)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"provider\": \"GOOGLE\",\n  \"token\": \"<google-id-token-from-app>\"\n}" },
+        "url": "{{baseUrl}}/social-login"
+      }
+    },
+    {
+      "name": "Guest Login",
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "const data = pm.response.json().data;",
+          "if (data) { pm.collectionVariables.set('accessToken', data.accessToken); pm.collectionVariables.set('refreshToken', data.refreshToken); }"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/guest-login"
+      }
+    },
+    {
+      "name": "Refresh Token",
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "const data = pm.response.json().data;",
+          "if (data) { pm.collectionVariables.set('accessToken', data.accessToken); pm.collectionVariables.set('refreshToken', data.refreshToken); }"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+        "url": "{{baseUrl}}/refresh-token"
+      }
+    },
+    {
+      "name": "Get Current User (/me)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/me"
+      }
+    },
+    {
+      "name": "Logout",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+        "url": "{{baseUrl}}/logout"
+      }
+    }
+  ]
+}
