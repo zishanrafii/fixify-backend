@@ -112,7 +112,8 @@ function startNotificationWorkers() {
   }
 
   const workers = Object.entries(PROCESSORS).map(([channel, processor]) => {
-    const worker = new Worker(`notifications:${channel}`, processor, { connection, concurrency: CONCURRENCY[channel] });
+const workerName = 'notifications-' + channel;
+const worker = new Worker(workerName, processor, { connection, concurrency: CONCURRENCY[channel] });
 
     worker.on('failed', async (job, err) => {
       if (job.attemptsMade >= job.opts.attempts) {
