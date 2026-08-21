@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const redisService = require('./redisService');
+const redisService = require('../services/redisService');
 
 const OTP_TTL_SECONDS = 5 * 60; // 5 minutes
 const MAX_VERIFY_ATTEMPTS = 5;
