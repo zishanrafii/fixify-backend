@@ -445,9 +445,23 @@ model Review {
   createdAt DateTime @default(now())
 }
 
-enum ConversationType { CUSTOMER_PROVIDER  CUSTOMER_SUPPORT  ADMIN_CUSTOMER  ADMIN_PROVIDER }
-enum ConversationStatus { ACTIVE  LOCKED  ARCHIVED }
-enum ParticipantRole { CUSTOMER  PROVIDER  SUPPORT_AGENT  ADMIN }
+enum ConversationType {
+  CUSTOMER_PROVIDER
+  CUSTOMER_SUPPORT
+  ADMIN_CUSTOMER
+  ADMIN_PROVIDER
+}
+enum ConversationStatus {
+  ACTIVE
+  LOCKED
+  ARCHIVED
+}
+enum ParticipantRole {
+  CUSTOMER
+  PROVIDER
+  SUPPORT_AGENT
+  ADMIN
+}
 enum MessageType {
   TEXT
   IMAGE
@@ -455,7 +469,13 @@ enum MessageType {
   VOICE
   LOCATION
 }
-enum MessageStatus { SENT  DELIVERED  READ  PENDING_REVIEW  BLOCKED }
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+  PENDING_REVIEW
+  BLOCKED
+}
 
 model Conversation {
   id            String    @id @default(uuid())
@@ -545,7 +565,11 @@ model MessageRead {
   @@unique([messageId, userId])
 }
 
-enum ReportStatus { OPEN  REVIEWED  DISMISSED }
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
+}
 
 model MessageReport {
   id               String   @id @default(uuid())
@@ -561,27 +585,41 @@ model MessageReport {
   @@index([status])
 }
 
-enum BookingPhase { BEFORE_BOOKING  DURING_BOOKING  AFTER_BOOKING }
-enum PolicyMode { OFF  WARN  REVIEW  BLOCK }
+enum BookingPhase {
+  BEFORE_BOOKING
+  DURING_BOOKING
+  AFTER_BOOKING
+}
+
+enum PolicyMode {
+  OFF
+  WARN
+  REVIEW
+  BLOCK
+}
 
 model CommunicationPolicy {
-  id              String     @id @default(uuid())
+  id              String       @id @default(uuid())
   phase           BookingPhase @unique
   mode            PolicyMode
-  updatedAt       DateTime   @updatedAt
+  updatedAt       DateTime     @updatedAt
   updatedByUserId String?
 }
 
-enum DetectionRuleType { REGEX  CUSTOM_FUNCTION  ML_MODEL }
+enum DetectionRuleType {
+  REGEX
+  CUSTOM_FUNCTION
+  ML_MODEL
+}
 
 model DetectionRule {
-  id          String   @id @default(uuid())
-  key         String   @unique
+  id          String            @id @default(uuid())
+  key         String            @unique
   type        DetectionRuleType @default(REGEX)
   pattern     String?
   description String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
 }
 
 model Payment {
