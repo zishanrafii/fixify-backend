@@ -1,5 +1,5 @@
 const rateLimit = require('express-rate-limit');
-const redisService = require('./redisService');
+const redisService = require('../services/redisService');
 
 // A minimal express-rate-limit Store backed by RedisService.incrWithTTL().
 // Deliberately NOT using the rate-limit-redis package — going through our
