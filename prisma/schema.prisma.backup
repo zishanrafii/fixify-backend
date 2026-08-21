@@ -1,0 +1,978 @@
+// Local Skill Marketplace - Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  PROVIDER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED_BY_CUSTOMER
+  CANCELLED_BY_PROVIDER
+  EXPIRED
+  DISPUTED
+}
+
+enum AuthProvider {
+  PHONE
+  EMAIL
+  GOOGLE
+  APPLE
+  FACEBOOK
+  GUEST
+}
+
+enum ProviderStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum LedgerEntryType {
+  ESCROW_HELD
+  ESCROW_RELEASED
+  PLATFORM_COMMISSION
+  REFUND
+}
+
+enum PricingType {
+  FIXED
+  HOURLY
+  PACKAGE
+  SUBSCRIPTION
+}
+
+enum BookingType {
+  SCHEDULED
+  INSTANT
+  EMERGENCY
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum JobPostStatus {
+  OPEN
+  AWARDED
+  CANCELLED
+  EXPIRED
+}
+
+enum BidStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum CallType {
+  VOICE
+  VIDEO
+}
+
+enum CallStatus {
+  RINGING
+  ONGOING
+  COMPLETED
+  MISSED
+  REJECTED
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
+model Dispute {
+  id             String        @id @default(uuid())
+  bookingId      String
+  raisedByUserId String
+  reason         String
+  description    String?
+  status         DisputeStatus @default(OPEN)
+  resolutionNote String?
+  createdAt      DateTime      @default(now())
+  resolvedAt     DateTime?
+}
+
+model CallLog {
+  id            String     @id @default(uuid())
+  bookingId     String
+  callerId      String
+  calleeId      String
+  type          CallType
+  status        CallStatus @default(RINGING)
+  startedAt     DateTime   @default(now())
+  connectedAt   DateTime?
+  endedAt       DateTime?
+  durationSeconds Int?
+}
+
+model User {
+  id            String   @id @default(uuid())
+  phone         String?  @unique
+  email         String?  @unique
+  passwordHash  String?
+  name          String
+  role          Role     @default(CUSTOMER)
+  isVerified    Boolean  @default(false)
+  isGuest       Boolean  @default(false)
+  isSuspended   Boolean  @default(false)
+  fcmToken      String?
+  createdAt     DateTime @default(now())
+
+  // Social login
+  authProvider    AuthProvider @default(PHONE)
+  googleId        String?  @unique
+  appleId         String?  @unique
+  facebookId      String?  @unique
+
+  // Profile
+  avatarUrl       String?
+  coverPhotoUrl   String?
+  address         String?
+  latitude        Float?
+  longitude        Float?
+  languages       String[] @default([])
+  // অ্যাপের ১২-ভাষা i18n সিস্টেম আগে শুধু client-side ছিল - এই ফিল্ডটা প্রথমবার
+  // সেটাকে backend-এর সাথে যুক্ত করছে, যাতে notification-এর মতো server-rendered
+  // কন্টেন্ট ইউজারের ভাষা অনুযায়ী পাঠানো যায়। বাংলা ডিফল্ট/ফলব্যাক থাকছে।
+  preferredLanguage String @default("bn")
+
+  // Verification
+  idVerificationStatus   VerificationStatus @default(UNVERIFIED)
+  idDocumentUrl          String?
+  faceVerificationStatus VerificationStatus @default(UNVERIFIED)
+  selfieUrl              String?
+
+  // Referral program
+  referralCode         String?  @unique
+  referredById         String?
+  referredBy           User?    @relation("Referrals", fields: [referredById], references: [id])
+  referrals            User[]   @relation("Referrals")
+  referralBonusGranted Boolean  @default(false) // true once referredBy has been paid the signup bonus for this user
+
+  providerProfile ProviderProfile?
+  bookingsAsCustomer Booking[] @relation("CustomerBookings")
+  messagesSent   Message[]
+  jobPosts        JobPost[]
+  favorites       Favorite[]
+  refreshTokens   RefreshToken[]
+  loginEvents     LoginEvent[]
+  addresses       Address[]
+  notifications   Notification[]
+  notificationPreferences NotificationPreference[]
+  adminProfile    AdminProfile?
+  conversationParticipants ConversationParticipant[]
+  lastSeenAt      DateTime?
+}
+
+model Address {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  label       String?
+  addressLine String
+  latitude    Float
+  longitude   Float
+  // Structured location fields — nullable/additive so existing rows and all
+  // existing code (which only ever read addressLine/latitude/longitude)
+  // remain fully backward compatible. `city` is used by City-wise Analytics
+  // now; division/district/country are reserved for future location
+  // analytics expansion without another migration.
+  city        String?
+  district    String?
+  division    String?
+  country     String?   @default("Bangladesh")
+  isDefault   Boolean   @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([city])
+}
+
+model LoginEvent {
+  id         String       @id @default(uuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id])
+  provider   AuthProvider
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime     @default(now())
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  tokenHash         String    @unique
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model ProviderProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id])
+  bio                String?
+  experienceYears    Int?     @default(0)
+  serviceAreaRadiusKm Int?    @default(5)
+  latitude           Float?
+  longitude          Float?
+  avgRating          Float?   @default(0)
+  totalReviews       Int      @default(0)
+  status             ProviderStatus @default(PENDING_VERIFICATION)
+  isOnline           Boolean  @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime @default(now())
+
+  // Portfolio & credibility
+  portfolioImages    String[] @default([])
+  skills             String[] @default([])
+  certificates       Certificate[]
+  education          Education[]
+  trustScore         Float?   @default(0)
+  responseTimeMins   Int?
+  completionRate     Float?   @default(0)
+
+  listings           ServiceListing[]
+  bookingsAsProvider Booking[] @relation("ProviderBookings")
+  bids               Bid[]
+  availability       ProviderAvailability[]
+}
+
+// Weekly recurring working hours, e.g. dayOfWeek=1 (Monday), 9:00-18:00 -> startMinute=540, endMinute=1080
+model ProviderAvailability {
+  id          String   @id @default(uuid())
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id])
+  dayOfWeek   Int      // 0=Sunday ... 6=Saturday
+  startMinute Int      // minutes since midnight
+  endMinute   Int
+}
+
+model Certificate {
+  id          String   @id @default(uuid())
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id])
+  title       String
+  issuer      String?
+  fileUrl     String?
+  issuedAt    DateTime?
+}
+
+model Education {
+  id          String   @id @default(uuid())
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id])
+  institution String
+  degree      String?
+  yearEnd     Int?
+}
+
+model ServiceCategory {
+  id       String @id @default(uuid())
+  name     String @unique // Electrician, Plumber, Tutor, Photographer, Cook
+  iconUrl  String?
+  parentId String?
+  parent   ServiceCategory?  @relation("SubCategories", fields: [parentId], references: [id])
+  children ServiceCategory[] @relation("SubCategories")
+
+  listings ServiceListing[]
+  jobPosts JobPost[]
+}
+
+model ServiceListing {
+  id            String   @id @default(uuid())
+  providerId    String
+  provider      ProviderProfile @relation(fields: [providerId], references: [id])
+  categoryId    String
+  category      ServiceCategory @relation(fields: [categoryId], references: [id])
+  title         String
+  description   String?
+  pricingType   PricingType @default(FIXED)
+  price         Float
+  hourlyRate    Float?
+  packageTiers  Json?    // [{name, price, deliverables}]
+  photos        String[] // array of image URLs
+  isEmergencyAvailable Boolean @default(false)
+  isInstantBookingEnabled Boolean @default(false)
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+
+  bookings      Booking[]
+  favoritedBy   Favorite[]
+}
+
+model Booking {
+  id            String   @id @default(uuid())
+  customerId    String
+  customer      User     @relation("CustomerBookings", fields: [customerId], references: [id])
+  providerId    String
+  provider      ProviderProfile @relation("ProviderBookings", fields: [providerId], references: [id])
+  listingId     String
+  listing       ServiceListing @relation(fields: [listingId], references: [id])
+  status        BookingStatus @default(PENDING)
+  bookingType   BookingType @default(SCHEDULED)
+  scheduledTime DateTime
+  isRecurring   Boolean  @default(false)
+  recurrenceRule String? // e.g. "WEEKLY"
+
+  // Snapshots — captured once at creation. Later address/listing-price edits
+  // must never silently change historical booking records.
+  serviceAddress String
+  latitude       Float
+  longitude      Float
+  agreedPrice    Float
+
+  // Lifecycle audit trail
+  acceptedAt         DateTime?
+  rejectedAt          DateTime?
+  startedAt           DateTime?
+  providerMarkedDoneAt DateTime? // provider says work is done; awaiting customer confirmation
+  completedAt         DateTime?
+  cancelledAt          DateTime?
+  cancelledByUserId    String?
+  cancellationReason   String?
+  expiresAt             DateTime? // PENDING auto-expiry deadline for provider response
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  review        Review?
+  conversation  Conversation?
+  payment       Payment?
+  ledgerEntries LedgerEntry[]
+
+  @@index([customerId])
+  @@index([providerId])
+  @@index([status])
+  @@index([scheduledTime])
+}
+
+// DEPRECATED as of the Wallet Module rewrite — superseded by the
+// system-wide LedgerTransaction model. Kept for historical read-access
+// only; nothing writes to this model anymore.
+// Immutable, append-only financial audit log — one row per money movement.
+// The (bookingId, type) unique constraint is also the idempotency guard: if
+// the same operation is attempted twice (retry, concurrent request, replayed
+// webhook), the second insert fails on the unique constraint instead of
+// double-recording the movement. Every wallet credit/debit and platform
+// commission traces back to exactly one row here.
+model LedgerEntry {
+  id        String          @id @default(uuid())
+  bookingId String
+  booking   Booking         @relation(fields: [bookingId], references: [id])
+  type      LedgerEntryType
+  amount    Float
+  userId    String?         // whose wallet was affected; null for platform commission
+  note      String?
+  createdAt DateTime        @default(now())
+
+  @@unique([bookingId, type])
+  @@index([userId])
+}
+
+model JobPost {
+  id           String   @id @default(uuid())
+  customerId   String
+  customer     User     @relation(fields: [customerId], references: [id])
+  categoryId   String
+  category     ServiceCategory @relation(fields: [categoryId], references: [id])
+  title        String
+  description  String?
+  budgetMin    Float?
+  budgetMax    Float?
+  latitude     Float?
+  longitude    Float?
+  address      String?
+  status       JobPostStatus @default(OPEN)
+  awardedBidId String?  @unique
+  createdAt    DateTime @default(now())
+
+  bids         Bid[]
+}
+
+model Bid {
+  id          String    @id @default(uuid())
+  jobPostId   String
+  jobPost     JobPost   @relation(fields: [jobPostId], references: [id])
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id])
+  price       Float
+  message     String?
+  status      BidStatus @default(PENDING)
+  createdAt   DateTime  @default(now())
+
+  @@unique([jobPostId, providerId]) // a provider can only bid once per job post
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+enum ConversationType { CUSTOMER_PROVIDER  CUSTOMER_SUPPORT  ADMIN_CUSTOMER  ADMIN_PROVIDER }
+enum ConversationStatus { ACTIVE  LOCKED  ARCHIVED }
+enum ParticipantRole { CUSTOMER  PROVIDER  SUPPORT_AGENT  ADMIN }
+enum MessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  VOICE
+  LOCATION
+}
+enum MessageStatus { SENT  DELIVERED  READ  PENDING_REVIEW  BLOCKED }
+
+model Conversation {
+  id            String    @id @default(uuid())
+  type          ConversationType
+  bookingId     String?   @unique
+  booking       Booking?  @relation(fields: [bookingId], references: [id])
+  status        ConversationStatus @default(ACTIVE)
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  archivedAt    DateTime?
+  lockedReason  String?
+
+  participants  ConversationParticipant[]
+  messages      Message[]
+
+  @@index([type, status])
+}
+
+model ConversationParticipant {
+  id             String    @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  role           ParticipantRole
+  lastReadAt     DateTime?
+  isMuted        Boolean   @default(false)
+  joinedAt       DateTime  @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String
+  sender         User      @relation(fields: [senderId], references: [id])
+  type           MessageType @default(TEXT)
+  text           String?
+  status         MessageStatus @default(SENT)
+  isFlagged      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  editedAt       DateTime?
+  deletedAt      DateTime?
+
+  attachments    MessageAttachment[]
+  deliveries     MessageDelivery[]
+  reads          MessageRead[]
+  reports        MessageReport[]
+
+  @@index([conversationId, createdAt])
+}
+
+model MessageAttachment {
+  id              String   @id @default(uuid())
+  messageId       String
+  message         Message  @relation(fields: [messageId], references: [id])
+  url             String
+  fileName        String?
+  fileSizeBytes   Int?
+  mimeType        String?
+  durationSeconds Int?
+  latitude        Float?
+  longitude       Float?
+  createdAt       DateTime @default(now())
+}
+
+model MessageDelivery {
+  id          String   @id @default(uuid())
+  messageId   String
+  message     Message  @relation(fields: [messageId], references: [id])
+  userId      String
+  deliveredAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+}
+
+model MessageRead {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id])
+  userId    String
+  readAt    DateTime @default(now())
+
+  @@unique([messageId, userId])
+}
+
+enum ReportStatus { OPEN  REVIEWED  DISMISSED }
+
+model MessageReport {
+  id               String   @id @default(uuid())
+  messageId        String
+  message          Message  @relation(fields: [messageId], references: [id])
+  reportedByUserId String
+  reason           String
+  status           ReportStatus @default(OPEN)
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([status])
+}
+
+enum BookingPhase {
+  BEFORE_BOOKING
+  DURING_BOOKING
+  AFTER_BOOKING
+}
+
+enum PolicyMode {
+  OFF
+  WARN
+  REVIEW
+  BLOCK
+}
+
+model CommunicationPolicy {
+  id              String       @id @default(uuid())
+  phase           BookingPhase @unique
+  mode            PolicyMode
+  updatedAt       DateTime     @updatedAt
+  updatedByUserId String?
+}
+
+enum DetectionRuleType {
+  REGEX
+  CUSTOM_FUNCTION
+  ML_MODEL
+}
+
+model DetectionRule {
+  id          String            @id @default(uuid())
+  key         String            @unique
+  type        DetectionRuleType @default(REGEX)
+  pattern     String?
+  description String
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  bookingId     String   @unique
+  booking       Booking  @relation(fields: [bookingId], references: [id])
+  amount        Float
+  status        String   // pending, success, failed, escrow_held, refunded
+  provider      String?  // 'SSLCOMMERZ' | 'STRIPE' — which gateway this went through
+  gatewayTxnId  String?
+  isEscrow      Boolean  @default(false)
+  escrowReleasedAt DateTime?
+  reconciliationAttempts Int @default(0)
+  lastReconciledAt DateTime?
+  createdAt     DateTime @default(now())
+
+  reconciliationLogs ReconciliationLog[]
+}
+
+enum ReconciliationAction {
+  MATCHED_NO_ACTION
+  MARKED_ESCROW_HELD
+  MARKED_FAILED
+  FLAGGED_MANUAL_REVIEW
+  ERROR
+}
+
+// Append-only audit trail — one row per reconciliation attempt per payment.
+// Never updated in place except resolvedAt/resolvedBy, which an admin sets
+// when clearing a FLAGGED_MANUAL_REVIEW item from the queue.
+model ReconciliationLog {
+  id             String   @id @default(uuid())
+  paymentId      String
+  payment        Payment  @relation(fields: [paymentId], references: [id])
+  provider       String
+  action         ReconciliationAction
+  previousStatus String?
+  newStatus      String?
+  gatewayStatus  String?
+  detail         String?
+  resolvedAt     DateTime?
+  resolvedBy     String?  // admin userId who cleared a manual-review item
+  createdAt      DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([action])
+}
+
+// DEPRECATED as of the Wallet Module rewrite — superseded by Account +
+// LedgerTransaction below, which is now the single source of truth for all
+// money movement. Kept in the schema (not dropped) purely for historical
+// read-access to pre-migration data; nothing writes to these two models
+// anymore. See docs/wallet-module-migration-summary.md.
+model Wallet {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  balance       Float    @default(0)
+  transactions  WalletTransaction[]
+  updatedAt     DateTime @updatedAt
+}
+
+model WalletTransaction {
+  id            String   @id @default(uuid())
+  walletId      String
+  wallet        Wallet   @relation(fields: [walletId], references: [id])
+  type          String   // credit, debit, referral_bonus, cashback, withdraw
+  amount        Float
+  note          String?
+  status        String?  // withdraw টাইপের জন্য: pending, processed, rejected (বাকিগুলো null/instant)
+  createdAt     DateTime @default(now())
+}
+
+enum AccountType {
+  USER_WALLET              // প্রতি ইউজারের একটা — customer বা provider যেই হোক
+  PLATFORM_ESCROW           // singleton — in-transit টাকা এখানে হোল্ড থাকে
+  PLATFORM_REVENUE          // singleton — কমিশন থেকে আসা রাজস্ব
+  PLATFORM_MARKETING_POOL   // singleton — referral/cashback/promo খরচ, REVENUE থেকে সম্পূর্ণ আলাদা
+  PLATFORM_PAYOUT_PENDING   // singleton — উত্তোলনের অনুরোধ admin decision-এর অপেক্ষায় থাকাকালীন এখানে বসে থাকে
+  EXTERNAL_GATEWAY          // bookkeeping fiction — payment gateway থেকে টাকা "আসে" এখান থেকে
+  EXTERNAL_BANK             // bookkeeping fiction — উত্তোলিত টাকা সিস্টেমের বাইরে "চলে যায়" এখানে
+}
+
+model Account {
+  id        String      @id @default(uuid())
+  type      AccountType
+  userId    String?     @unique // শুধু USER_WALLET-এর জন্য সেট থাকে
+  balance   Float       @default(0) // materialized cache — source of truth হলো LedgerTransaction-এর sum
+  createdAt DateTime    @default(now())
+
+  outgoing  LedgerTransaction[] @relation("FromAccount")
+  incoming  LedgerTransaction[] @relation("ToAccount")
+
+  @@index([type])
+}
+
+enum LedgerReason {
+  PAYMENT_CAPTURED
+  ESCROW_RELEASE
+  PLATFORM_COMMISSION
+  REFUND
+  WITHDRAWAL_REQUEST
+  WITHDRAWAL_COMPLETED
+  WITHDRAWAL_REJECTED
+  REFERRAL_BONUS
+  CASHBACK
+  PROMO_CREDIT
+  ADMIN_ADJUSTMENT
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  FINANCE_ADMIN
+  SUPPORT_ADMIN
+  MODERATOR
+}
+
+// User.role stays CUSTOMER/PROVIDER/ADMIN unchanged — this is a separate,
+// additive dimension: "which admin tier". Only users with role=ADMIN should
+// ever get an AdminProfile (enforced at the application layer).
+model AdminProfile {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id])
+  adminRole          AdminRole
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false) // forced on the initial bootstrap SUPER_ADMIN
+  // Reserved for future MFA — inactive/unused until that feature is built,
+  // included now so enabling it later needs no further migration.
+  mfaEnabled         Boolean   @default(false)
+  mfaSecret          String?
+  createdByUserId    String?   // who granted this admin access — its own privilege-grant audit trail
+  createdAt          DateTime  @default(now())
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  key         String @unique // e.g. "users.suspend", "wallet.adjust", "disputes.resolve"
+  description String
+  category    String // USER | PROVIDER | BOOKING | WALLET | PAYMENT | DISPUTE | NOTIFICATION | REPORTS | AUDIT | ROLE | SETTINGS | DASHBOARD
+
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  adminRole    AdminRole
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([adminRole, permissionId])
+}
+
+// Every admin action's immutable record — including DENIED attempts, which
+// is what actually catches privilege-escalation attempts.
+model AdminAuditLog {
+  id              String   @id @default(uuid())
+  adminUserId     String
+  action          String   // matches a Permission.key
+  method          String?
+  path            String?
+  targetType      String?
+  targetId        String?
+  requestSummary  Json?    // request body/params — what was asked, not a full DB diff (see design doc)
+  statusCode      Int?
+  wasDenied       Boolean  @default(false)
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+// Nightly precomputed rollup — dashboard trend charts read this instead of
+// aggregating raw tables on every request.
+model DailyMetricsSnapshot {
+  id                   String   @id @default(uuid())
+  date                 DateTime @unique
+  totalUsers           Int
+  activeUsers          Int
+  totalProviders       Int
+  activeProviders      Int
+  pendingVerifications Int
+  totalBookings        Int
+  completedBookings    Int
+  cancelledBookings    Int
+  revenue              Float
+  commission           Float
+  refundAmount         Float
+  newUsers             Int
+  newProviders         Int
+  createdAt            DateTime @default(now())
+}
+
+model SystemSetting {
+  key             String   @id
+  value           Json
+  description     String?
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+}
+
+enum NotificationChannel {
+  PUSH
+  EMAIL
+  SMS
+  IN_APP
+}
+
+enum NotificationCategory {
+  BOOKING
+  PAYMENT
+  WALLET
+  VERIFICATION
+  SECURITY
+  SYSTEM
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RETRYING
+  DEAD_LETTER
+}
+
+model NotificationTemplate {
+  id                   String                @id @default(uuid())
+  key                  String                @unique // event name, e.g. "booking.created"
+  category             NotificationCategory
+  channels             NotificationChannel[]
+  titleTemplate        String?
+  bodyTemplate         String
+  // ঐচ্ছিক ভাষা-ভিত্তিক ভ্যারিয়েন্ট: { "en": "...", "hi": "...", ... } - কী হলো
+  // ISO ভাষা কোড। মূল titleTemplate/bodyTemplate (বাংলা) অপরিবর্তিত থাকে এবং
+  // এটাই ডিফল্ট/ফলব্যাক - কোনো ভাষার অনুবাদ না থাকলে notify() স্বয়ংক্রিয়ভাবে
+  // এখানে ফিরে আসে। বিদ্যমান কোনো টেমপ্লেট ভাঙে না, শুধু নতুন ঐচ্ছিক ক্ষমতা যোগ হলো।
+  titleTemplateTranslations Json?
+  bodyTemplateTranslations  Json?
+  emailSubjectTemplate String?
+  emailBodyTemplate    String?
+  smsTemplate          String?
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+}
+
+model NotificationPreference {
+  id           String               @id @default(uuid())
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id])
+  category     NotificationCategory
+  pushEnabled  Boolean              @default(true)
+  emailEnabled Boolean              @default(true)
+  smsEnabled   Boolean              @default(false)
+  inAppEnabled Boolean              @default(true)
+  updatedAt    DateTime             @updatedAt
+
+  @@unique([userId, category])
+}
+
+// One domain event = one Notification row. idempotencyKey is the dedup
+// guard — a duplicate event never creates a second row.
+model Notification {
+  id             String               @id @default(uuid())
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id])
+  templateKey    String
+  category       NotificationCategory
+  title          String
+  body           String
+  data           Json?
+  isRead         Boolean              @default(false)
+  readAt         DateTime?
+  scheduledFor   DateTime?
+  idempotencyKey String               @unique
+  createdAt      DateTime             @default(now())
+
+  deliveryLogs   NotificationDeliveryLog[]
+
+  @@index([userId, isRead])
+  @@index([scheduledFor])
+  @@index([category])
+}
+
+// One row per delivery attempt per channel — full audit trail.
+model NotificationDeliveryLog {
+  id               String              @id @default(uuid())
+  notificationId   String
+  notification     Notification        @relation(fields: [notificationId], references: [id])
+  channel          NotificationChannel
+  status           DeliveryStatus
+  attempt          Int                 @default(1)
+  providerResponse Json?
+  errorMessage     String?
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  createdAt        DateTime            @default(now())
+
+  @@index([notificationId, channel])
+  @@index([status])
+}
+
+// The single source of truth for every money movement in the system.
+// Append-only — never updated or deleted. Corrections are new reversing
+// entries, never edits. `idempotencyKey` is the system-wide idempotency
+// guard: a duplicate attempt at the same operation collides on this unique
+// constraint instead of double-processing.
+model LedgerTransaction {
+  id                String       @id @default(uuid())
+  idempotencyKey    String       @unique
+  fromAccountId     String
+  fromAccount       Account      @relation("FromAccount", fields: [fromAccountId], references: [id])
+  toAccountId       String
+  toAccount         Account      @relation("ToAccount", fields: [toAccountId], references: [id])
+  amount            Float
+  reason            LedgerReason
+  bookingId         String?      // not every transaction is booking-tied (e.g. withdrawal, admin adjustment)
+  campaignId        String?      // reserved for future promo/referral campaign tracking
+  initiatedByUserId String?      // set for ADMIN_ADJUSTMENT — who did it
+  metadata          Json?
+  createdAt         DateTime     @default(now())
+
+  @@index([fromAccountId])
+  @@index([toAccountId])
+  @@index([bookingId])
+  @@index([reason])
+  @@index([campaignId])
+}
+
+enum WithdrawalStatus {
+  PENDING
+  COMPLETED
+  REJECTED
+}
+
+model WithdrawalRequest {
+  id                 String           @id @default(uuid())
+  userId             String
+  accountId          String
+  amount             Float
+  method             String
+  accountDetails     String
+  status             WithdrawalStatus @default(PENDING)
+  reserveLedgerTxnId String           // WITHDRAWAL_REQUEST entry — funds already reserved out of the wallet
+  settleLedgerTxnId  String?          // WITHDRAWAL_COMPLETED or WITHDRAWAL_REJECTED entry, once decided
+  processedByUserId  String?
+  createdAt          DateTime         @default(now())
+  processedAt        DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Coupon {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  discountPct   Float?
+  discountFlat  Float?
+  maxUses       Int?
+  usedCount     Int      @default(0)
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+}
+
+// Wishlist / "saved providers" - one row per (user, listing) they've favorited.
+model Favorite {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  listingId  String
+  listing    ServiceListing @relation(fields: [listingId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, listingId])
+}
