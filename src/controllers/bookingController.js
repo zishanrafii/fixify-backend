@@ -290,7 +290,15 @@ async function getMyBookings(req, res) {
   const [bookings, total] = await Promise.all([
     prisma.booking.findMany({
       where,
-      include: { listing: true, customer: { select: { id: true, name: true, avatarUrl: true } } },
+ include: {
+  listing: true,
+  customer: { select: { id: true, name: true, avatarUrl: true } },
+  provider: {
+    include: {
+      user: { select: { id: true, name: true, avatarUrl: true } },
+    },
+  },
+},
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
